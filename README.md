@@ -23,7 +23,7 @@ Processeur d'effets guitare en temps réel basé sur Teensy 4.0 et Faust + Syst�
 ```
 GUISON/
 ├── hardware/      # Schémas de circuits et définitions de broches
-├── firmware/      # Firmware Teensy (C++)
+├── firmware/      # Firmware Teensy (arduino)
 ├── dsp/           # Algorithmes d'effets Faust
 ├── visualizer/    # Visualisation côté PC (Python)
 └── docs/          # Documentation principale
