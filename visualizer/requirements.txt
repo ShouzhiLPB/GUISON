@@ -1,0 +1,15 @@
+# Dépendances Python - Programme de visualisation PC
+
+# Communication série
+pyserial==3.5
+
+# Rendu graphique (choisir l'un)
+pygame==2.5.2          # Graphiques 2D (simple, recommandé pour débuter)
+# moderngl==5.10.0     # OpenGL (haute performance, effets spectaculaires)
+# PyOpenGL==3.1.7      # OpenGL (solution traditionnelle)
+
+# Calcul numérique
+numpy==1.26.4
+
+# Optionnel : surveillance des performances
+# psutil==5.9.8

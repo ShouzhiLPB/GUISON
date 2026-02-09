@@ -1,0 +1,35 @@
+# Table d'attribution des broches Teensy 4.0
+
+## Entrées analogiques (ADC)
+A0 (Pin 14) → Potentiomètre 1 (Contrôle de gain)
+A1 (Pin 15) → Potentiomètre 2 (Contrôle de mix)
+A2 (Pin 16) → Entrée microphone
+
+## Interface audio I2S
+Pin 7  → I2S TX (Sortie de données DAC)
+Pin 8  → I2S RX (Entrée de données ADC, si utilisation d'Audio Shield)
+Pin 20 → I2S LRCLK (Horloge canal gauche/droite)
+Pin 21 → I2S BCLK (Horloge de bit)
+Pin 23 → I2S MCLK (Horloge maître, nécessaire pour Audio Shield)
+
+## Communication série
+USB → USB Serial (Communication avec PC, mappage automatique)
+
+## Broches d'alimentation
+3.3V → Alimentation des modules externes (maximum 250mA)
+GND  → Masse commune
+VIN  → Entrée 5V (si non alimenté par USB)
+
+## Fonctions optionnelles
+Pin 13 → LED indicateur (LED embarquée)
+Pin 12 → Entrée bouton (pour extension de fonctionnalités)
+
+## Statistiques d'utilisation des broches
+- Utilisées : 9 broches
+- Réservées : 31 broches (pour extension future)
+
+## Notes importantes
+1. Le niveau IO du Teensy 4.0 est de 3.3V, ne pas connecter de signaux 5V
+2. Résolution des broches analogiques : 10bit (0-1023)
+3. Taux d'échantillonnage ADC : maximum 921kHz (100Hz suffisant pour le projet)
+4. Taux d'échantillonnage audio I2S : recommandé 44.1kHz ou 48kHz

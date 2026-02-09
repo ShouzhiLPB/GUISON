@@ -1,0 +1,64 @@
+# Instructions de connexion matérielle
+
+## Composants principaux
+
+1. Carte de développement Teensy 4.0
+2. Module audio (recommandé : Teensy Audio Shield ou module DAC PCM5102A)
+3. Potentiomètres x2 (10kΩ linéaire)
+4. Module microphone électret (avec préamplificateur)
+5. Prise jack 3.5mm pour écouteurs
+6. Breadboard, câbles de connexion
+
+## Connexions des broches
+
+### Entrée audio (microphone)
+```
+Module micro VCC  → Teensy 3.3V
+Module micro GND  → Teensy GND
+Module micro OUT  → Teensy A2 (ADC)
+```
+
+### Sortie audio (écouteurs)
+Si utilisation de Teensy Audio Shield :
+```
+Brancher directement sur les connecteurs à broches Teensy
+```
+
+Si utilisation d'un module DAC externe (I2S) :
+```
+DAC BCK  → Teensy Pin 21 (I2S BCLK)
+DAC LRCK → Teensy Pin 20 (I2S LRCLK)
+DAC DIN  → Teensy Pin 7  (I2S TX)
+DAC VCC  → Teensy 3.3V
+DAC GND  → Teensy GND
+```
+
+### Contrôle par potentiomètres
+```
+Potentiomètre 1 (Gain) :
+  - Une extrémité → 3.3V
+  - Autre extrémité → GND
+  - Contact central → Teensy A0 (ADC)
+
+Potentiomètre 2 (Mix) :
+  - Une extrémité → 3.3V
+  - Autre extrémité → GND
+  - Contact central → Teensy A1 (ADC)
+```
+
+### Alimentation
+```
+Alimentation USB → Interface USB Teensy (5V, régulée automatiquement à 3.3V)
+```
+
+## Notes sur le circuit
+
+1. **Isolation de masse audio** : Séparer la masse analogique et numérique, connexion en un seul point final
+2. **Condensateurs de découplage** : Placer un condensateur céramique 0.1μF près du VCC de chaque puce
+3. **Polarisation microphone** : Le microphone électret nécessite une résistance de pull-up (généralement intégrée au module)
+4. **Blindage des câbles audio** : Utiliser des câbles blindés pour connecter le microphone et les écouteurs afin de réduire les interférences
+
+## Améliorations optionnelles
+
+- **LED indicateur** : Connecter à Teensy Pin 13 pour afficher l'état de fonctionnement
+- **Bouton** : Pour basculer entre les effets prédéfinis (connecter à Pin 12, résistance de pull-down 10kΩ)

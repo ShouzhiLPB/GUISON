@@ -1,0 +1,23 @@
+# Artefacts de compilation du firmware Teensy
+.pio/
+.vscode/
+firmware/src/generated/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+venv/
+.env
+
+# Fichiers temporaires Faust
+*.svg
+*.pdf
+
+# Système d'exploitation
+.DS_Store
+Thumbs.db
+
+# Configuration utilisateur
+config.local.txt
