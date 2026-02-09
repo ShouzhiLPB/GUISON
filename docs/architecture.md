@@ -1,98 +1,86 @@
-# Conception de l'architecture système
+# 系统架构设计
 
-## Architecture globale
+## 整体架构
 
 ```
 ┌───────────────────────────────────────────┐
-│     Visualisation côté PC (Python)         │
-│   Recevoir paramètres → Rendu graphique   │
+│         PC可视化端 (Python)                │
+│   接收参数 → 实时渲染图形                  │
 └──────────────▲────────────────────────────┘
                │ USB Serial
 ┌──────────────┴────────────────────────────┐
-│   Firmware Teensy 4.0 (C++ + Faust DSP)   │
-│  Micro → Traitement DSP → Écouteurs        │
-│         ↑ Contrôle potentiomètres          │
+│      Teensy 4.0固件 (C++ + Faust DSP)     │
+│  麦克风 → DSP处理 → 耳机                   │
+│         ↑ 旋钮控制                         │
 └───────────────────────────────────────────┘
 ```
 
-## Trois modules principaux
+## 三大模块
 
-### 1. Firmware (Micrologiciel)
+### 1. Firmware（固件）
 
-**Fichiers** : `firmware/src/`
+**文件**：`firmware/src/`
 
-| Fichier | Responsabilité |
-|---------|---------------|
-| `main.cpp` | Programme principal : initialisation matérielle, boucle principale |
-| `AudioProcessor.h/cpp` | Noyau de traitement du flux audio |
-| `KnobController.h/cpp` | Lecture des potentiomètres et mappage des paramètres |
-| `SerialComm.h/cpp` | Communication USB série |
-| `FaustDSP.h/cpp` | Couche d'encapsulation Faust DSP |
+| 文件 | 职责 |
+|------|------|
+| `main.cpp` | 主程序：初始化硬件、主循环 |
+| `AudioProcessor.h/cpp` | 音频流处理核心 |
+| `KnobController.h/cpp` | 旋钮读取与参数映射 |
+| `SerialComm.h/cpp` | USB串口通信 |
+| `FaustDSP.h/cpp` | Faust DSP封装层 |
 
-**Flux audio** :
+**音频流程**：
 ```
-Microphone(ADC) → AudioProcessor → FaustDSP → Écouteurs(DAC)
-                        ↑
-                  KnobController
-```
-
-### 2. DSP (Algorithmes d'effets)
-
-**Fichiers** : `dsp/`
-
-| Fichier | Effet |
-|---------|-------|
-| `guitar_distortion.dsp` | Effet de distorsion (saturation non linéaire) |
-| `guitar_delay.dsp` | Effet de délai (écho) |
-| `guitar_reverb.dsp` | Effet de réverbération (sens spatial) |
-| `guitar_main.dsp` | Chaîne de signal principale (combine tous les effets) |
-
-**Flux de compilation** :
-```
-Code source Faust → faust2teensy → Code C++ → Intégration au firmware
+麦克风(ADC) → AudioProcessor → FaustDSP → 耳机(DAC)
+                    ↑
+              KnobController
 ```
 
-### 3. Visualizer (Visualisation)
+### 2. DSP（音效算法）
 
-**Fichiers** : `visualizer/src/`
+**文件**：`dsp/`
 
-| Fichier | Responsabilité |
-|---------|---------------|
-| `main.py` | Point d'entrée du programme principal |
-| `SerialReader.py` | Lire les paramètres Teensy |
-| `GraphicsEngine.py` | Moteur de rendu graphique |
-| `AudioVisualizer.py` | Logique de mappage paramètres→graphiques |
+| 文件 | 效果 |
+|------|------|
+| `guitar_distortion.dsp` | 失真效果（非线性饱和） |
+| `guitar_delay.dsp` | 延迟效果（回声） |
+| `guitar_reverb.dsp` | 混响效果（空间感） |
+| `guitar_main.dsp` | 主信号链（组合所有效果） |
 
-**Exemples de mappage de paramètres** :
-- `distortion` → Degré de distorsion graphique, saturation des couleurs
-- `delay` → Effet de traînée, nombre d'images rémanentes
-- `reverb` → Halo d'arrière-plan, rayon de flou
-
-## Protocole de communication
-
-### Format USB Serial
+**编译流程**：
 ```
-PARAM:distortion:0.75
-PARAM:delay_time:0.50
-PARAM:reverb_size:0.85
+Faust源码 → faust2teensy → C++代码 → 集成到firmware
 ```
 
-- Débit en bauds : 115200
-- Format : `PARAM:<nom_paramètre>:<valeur(0.0-1.0)>\n`
+### 3. Visualizer（可视化）
 
-## Pile technologique
+**文件**：`visualizer/src/`
 
-| Niveau | Technologie |
-|--------|-------------|
-| Matériel | Teensy 4.0 + Audio Shield |
-| Firmware | C++ + Teensy Audio Library |
-| DSP | Langage Faust |
-| Visualisation | Python + Pygame/OpenGL |
-| Communication | USB Serial |
+| 文件 | 职责 |
+|------|------|
+| `main.py` | 主程序入口 |
+| `SerialReader.py` | 读取Teensy参数 |
+| `GraphicsEngine.py` | 图形渲染引擎 |
+| `AudioVisualizer.py` | 参数→图形映射逻辑 |
 
-## Principes de conception
+**参数映射示例**：
+- `distortion` → 图形扭曲度、颜色饱和度
+- `delay` → 拖尾效果、残影数量
+- `reverb` → 背景光晕、模糊半径
 
-1. **Modularité** : Chaque module compilé et testé indépendamment
-2. **Temps réel** : Latence de traitement audio < 10ms
-3. **Extensibilité** : Ajout facile de nouveaux effets
-4. **Minimalisme** : Zéro redondance dans le code et la documentation
+## 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 硬件 | Teensy 4.0 + Audio Shield |
+| 固件 | C++ + Teensy Audio Library |
+| DSP | Faust语言 |
+| 可视化 | Python + Pygame/OpenGL |
+| 通信 | USB Serial |
+
+## 设计原则
+
+1. **模块化**：每个模块独立编译、测试
+2. **实时性**：音频处理延迟 < 10ms
+3. **可扩展**：轻松添加新效果器
+4. **精简**：零冗余代码和文档
