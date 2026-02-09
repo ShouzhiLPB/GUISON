@@ -1,6 +1,8 @@
-# SON - Guitar Effects DSP Project
+# GUISON - Guitar Effects DSP Project
 
-Processeur d'effets guitare en temps réel basé sur Teensy 4.0 et Faust + Système de visualisation
+Projet son : Synthétiseur de guitare en temps réel avec processeur d'effets et visualisation
+
+Processeur d'effets guitare en temps réel basé sur Teensy 4.0 et Faust + Système de visualisation (spectre des fréquences, lissajous, etc.)
 
 ## Démarrage rapide
 
@@ -19,7 +21,7 @@ Processeur d'effets guitare en temps réel basé sur Teensy 4.0 et Faust + Syst�
 ## Structure du projet
 
 ```
-SON/
+GUISON/
 ├── hardware/      # Schémas de circuits et définitions de broches
 ├── firmware/      # Firmware Teensy (C++)
 ├── dsp/           # Algorithmes d'effets Faust
