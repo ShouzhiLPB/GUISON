@@ -1,13 +1,26 @@
 #include <Audio.h>
 #include "ks_mono.h"
 
-#define NUM_KEYS 4
+#define NUM_CHORDS 4
+#define VOICES_PER_CHORD 3
 
-int buttonPins[NUM_KEYS] = {2,3,4,5};
+int buttonPins[NUM_CHORDS] = {2,3,4,5};
 
-int notes[NUM_KEYS] = {60, 64, 67, 70};
+int chordNotes[NUM_CHORDS][VOICES_PER_CHORD] = {
+  {60, 64, 67},  // C
+  {62, 65, 69},  // Dm
+  {64, 67, 71},  // Em
+  {65, 69, 72}   // F
+};
 
-ks_mono voices[NUM_KEYS];
+int strumDelay = 30;
+
+ks_mono voices[VOICES_PER_CHORD];
+
+unsigned long chordStartTime = 0;
+int activeChord = -1;
+bool chordPlaying = false;
+bool noteTriggered[VOICES_PER_CHORD] = {false};
 
 AudioMixer4 mixer;
 AudioOutputI2S out;
@@ -17,7 +30,7 @@ AudioRecordQueue queueR;
 AudioEffectDelay delayR;
 
 // Audio connections
-AudioConnection* patchCords[NUM_KEYS];
+AudioConnection* patchCords[VOICES_PER_CHORD];
 AudioConnection* patchOutL;
 AudioConnection* patchOutR;
 AudioConnection* patchQueueL;
@@ -25,11 +38,11 @@ AudioConnection* patchQueueR;
 AudioConnection* patchDelay;
 
 
-bool lastState[NUM_KEYS] = {false};
+bool lastState[NUM_CHORDS] = {false};
 
 void setup() {
 
-  for (int i = 0; i < NUM_KEYS; i++) {
+  for (int i = 0; i < NUM_CHORDS; i++) {
     pinMode(buttonPins[i], INPUT_PULLUP);
   }
 
@@ -39,9 +52,9 @@ void setup() {
   audioShield.volume(0.5);
 
   // connect voices to mixer
-  for (int i = 0; i < NUM_KEYS; i++) {
+  for (int i = 0; i < VOICES_PER_CHORD; i++) {
     patchCords[i] = new AudioConnection(voices[i], 0, mixer, i);
-    mixer.gain(i, 0.25);   // 防止爆音
+    mixer.gain(i, 0.25);
   }
 
   // mixer → stereo out
@@ -54,6 +67,7 @@ void setup() {
   patchQueueR = new AudioConnection(delayR, 0, queueR, 0);
 
   delayR.delay(0, 5);
+  randomSeed(analogRead(A0));
 
   queueL.begin();
   queueR.begin();
@@ -63,22 +77,54 @@ void setup() {
 
 void loop() {
 
-  for (int i = 0; i < NUM_KEYS; i++) {
+  for (int i = 0; i < NUM_CHORDS; i++) {
 
     bool pressed = !digitalRead(buttonPins[i]);
 
     if (pressed && !lastState[i]) {
-        voices[i].setParamValue("note", notes[i]);
-        voices[i].setParamValue("gate", 1);
+		chordStartTime = millis();
+		activeChord = i;
+		chordPlaying = true;
+
+		strumDelay = 20 + random(0,15);
+
+        for (int v = 0; v < VOICES_PER_CHORD; v++) {
+			noteTriggered[v] = false;
+			voices[v].setParamValue("gate", 0);
+  		}
     }
 
     if (!pressed && lastState[i]) {
-        voices[i].setParamValue("gate", 0);
+
+        for (int v = 0; v < VOICES_PER_CHORD; v++) {
+			voices[v].setParamValue("gate", 0);
+		}
+		chordPlaying = false;
     }
 
     lastState[i] = pressed;
   }
-  
+
+  if (chordPlaying && activeChord >= 0) {
+
+	unsigned long now = millis();
+	unsigned long dt = now - chordStartTime;
+
+	for (int v = 0; v < VOICES_PER_CHORD; v++) {
+
+		if (!noteTriggered[v] && dt > v * strumDelay) {   // un ecart entre chaque note
+
+			voices[v].setParamValue("note", chordNotes[activeChord][v]);
+			voices[v].setParamValue("gate", 1);
+			noteTriggered[v] = true;
+		}
+	}
+
+	if (dt > VOICES_PER_CHORD * strumDelay) {
+		chordPlaying = false;
+	}
+  }
+
   static int blockCounter = 0;
 
   while (queueL.available() && queueR.available()) {
