@@ -13,7 +13,7 @@ int chordNotes[NUM_CHORDS][VOICES_PER_CHORD] = {
   {65, 69, 72}   // F
 };
 
-int strumDelay = 30;
+int strumDelay = 20;
 
 ks_mono voices[VOICES_PER_CHORD];
 
@@ -82,24 +82,31 @@ void loop() {
     bool pressed = !digitalRead(buttonPins[i]);
 
     if (pressed && !lastState[i]) {
+
+		for (int v = 0; v < VOICES_PER_CHORD; v++) {
+            voices[v].setParamValue("gate", 0);
+            noteTriggered[v] = false;
+        }
+
 		chordStartTime = millis();
 		activeChord = i;
 		chordPlaying = true;
 
-		strumDelay = 20 + random(0,15);
+		strumDelay = 10 + random(0,10);
 
-        for (int v = 0; v < VOICES_PER_CHORD; v++) {
-			noteTriggered[v] = false;
-			voices[v].setParamValue("gate", 0);
-  		}
+        // for (int v = 0; v < VOICES_PER_CHORD; v++) {
+		// 	noteTriggered[v] = false;
+		// 	voices[v].setParamValue("gate", 0);
+  		// }
     }
 
-    if (!pressed && lastState[i]) {
+    if (!pressed && lastState[i] && i == activeChord) {
 
         for (int v = 0; v < VOICES_PER_CHORD; v++) {
 			voices[v].setParamValue("gate", 0);
 		}
 		chordPlaying = false;
+		activeChord = -1;
     }
 
     lastState[i] = pressed;
@@ -120,9 +127,9 @@ void loop() {
 		}
 	}
 
-	if (dt > VOICES_PER_CHORD * strumDelay) {
-		chordPlaying = false;
-	}
+	// if (dt > VOICES_PER_CHORD * strumDelay) {
+	// 	chordPlaying = false;
+	// }
   }
 
   static int blockCounter = 0;
