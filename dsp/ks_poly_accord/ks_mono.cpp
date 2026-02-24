@@ -10426,7 +10426,7 @@ struct mydsp : public dsp {
 	}
 	
 	virtual void instanceResetUserInterface() {
-		fHslider0 = static_cast<FAUSTFLOAT>(3.0f);
+		fHslider0 = static_cast<FAUSTFLOAT>(12.0f);
 		fHslider1 = static_cast<FAUSTFLOAT>(6e+01f);
 		fButton0 = static_cast<FAUSTFLOAT>(0.0f);
 		fHslider2 = static_cast<FAUSTFLOAT>(1e+02f);
@@ -10486,7 +10486,7 @@ struct mydsp : public dsp {
 		ui_interface->openVerticalBox("ks_mono");
 		ui_interface->addButton("gate", &fButton0);
 		ui_interface->addHorizontalSlider("note", &fHslider1, FAUSTFLOAT(6e+01f), FAUSTFLOAT(0.0f), FAUSTFLOAT(127.0f), FAUSTFLOAT(1.0f));
-		ui_interface->addHorizontalSlider("t60", &fHslider0, FAUSTFLOAT(3.0f), FAUSTFLOAT(0.1f), FAUSTFLOAT(1e+01f), FAUSTFLOAT(0.1f));
+		ui_interface->addHorizontalSlider("t60", &fHslider0, FAUSTFLOAT(12.0f), FAUSTFLOAT(1e+01f), FAUSTFLOAT(2e+01f), FAUSTFLOAT(0.1f));
 		ui_interface->addHorizontalSlider("velocity", &fHslider2, FAUSTFLOAT(1e+02f), FAUSTFLOAT(0.0f), FAUSTFLOAT(127.0f), FAUSTFLOAT(1.0f));
 		ui_interface->closeBox();
 	}
@@ -10552,13 +10552,13 @@ struct mydsp : public dsp {
 
 	FAUST_ADDBUTTON("gate", fButton0);
 	FAUST_ADDHORIZONTALSLIDER("note", fHslider1, 6e+01f, 0.0f, 127.0f, 1.0f);
-	FAUST_ADDHORIZONTALSLIDER("t60", fHslider0, 3.0f, 0.1f, 1e+01f, 0.1f);
+	FAUST_ADDHORIZONTALSLIDER("t60", fHslider0, 12.0f, 1e+01f, 2e+01f, 0.1f);
 	FAUST_ADDHORIZONTALSLIDER("velocity", fHslider2, 1e+02f, 0.0f, 127.0f, 1.0f);
 
 	#define FAUST_LIST_ACTIVES(p) \
 		p(BUTTON, gate, "gate", fButton0, 0.0f, 0.0f, 1.0f, 1.0f) \
 		p(HORIZONTALSLIDER, note, "note", fHslider1, 6e+01f, 0.0f, 127.0f, 1.0f) \
-		p(HORIZONTALSLIDER, t60, "t60", fHslider0, 3.0f, 0.1f, 1e+01f, 0.1f) \
+		p(HORIZONTALSLIDER, t60, "t60", fHslider0, 12.0f, 1e+01f, 2e+01f, 0.1f) \
 		p(HORIZONTALSLIDER, velocity, "velocity", fHslider2, 1e+02f, 0.0f, 127.0f, 1.0f) \
 
 	#define FAUST_LIST_PASSIVES(p) \
