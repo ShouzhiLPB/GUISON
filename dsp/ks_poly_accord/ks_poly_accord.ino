@@ -133,7 +133,7 @@ void loop() {
       if (!noteTriggered[v] && dt > (unsigned long)(v * strumDelay)) {  // un ecart entre chaque note
 
         if (v == 0) {
-          Serial.printf("%.2f; %.2f; %.2f;\n",
+          Serial.printf("%.2f;%.2f;%.2f\n",
                         freqArray[0],
                         freqArray[1],
                         freqArray[2]);
