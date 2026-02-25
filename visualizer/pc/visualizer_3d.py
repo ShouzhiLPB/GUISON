@@ -1,25 +1,40 @@
-"""
-3D Lissajous Visualizer Module
-
-Implements 3D Lissajous curves with perspective projection,
-rotation controls, and trail rendering with fade-out effects.
-"""
-
+import numpy as np
+import time
 import colorsys
 import math
 import random
-import time
-from collections import deque
-
 import pygame
-
 from ui import Theme
 
 # Shared fade configuration
 FADE_TIME = 4.0
 
-# Maximum number of points to keep in the trail
-MAX_POINTS = 10000
+# Optional note mapping (used by demo_v3 keyboard mode)
+NOTE_FREQUENCIES = {
+    '1': 261.63, '2': 293.66, '3': 329.63, '4': 349.23,
+    '5': 392.00, '6': 440.00, '7': 493.88, '8': 523.25,
+    'q': 277.18, 'w': 311.13, 'r': 369.99, 't': 415.30, 'y': 466.16
+}
+NOTE_COLORS = {
+    '1': (255, 100, 100), '2': (255, 150, 50), '3': (255, 255, 100),
+    '4': (100, 255, 100), '5': (100, 200, 255), '6': (150, 100, 255),
+    '7': (255, 100, 200), '8': (255, 200, 200),
+    'q': (200, 80, 80), 'w': (200, 120, 40),
+    'r': (80, 200, 200), 't': (80, 150, 200), 'y': (120, 80, 200)
+}
+
+
+class TimedPoint:
+    """2D point with fade-out lifetime on screen.
+    Inputs: x/y pixel coordinates, RGB color tuple, birth timestamp.
+    Outputs: alpha queries and alive-check based on FADE_TIME."""
+
+    def __init__(self, x, y, color, birth):
+        self.x, self.y, self.color, self.birth_time = x, y, color, birth
+    def get_alpha(self, now):
+        age = now - self.birth_time
+        return 0.0 if age >= FADE_TIME else 1.0 - (age / FADE_TIME)
+    def is_alive(self, now): return (now - self.birth_time) < FADE_TIME
 
 
 class TrailPoint3D:
@@ -27,26 +42,10 @@ class TrailPoint3D:
     Inputs: x/y/z coordinates, RGB color tuple, birth timestamp.
     Outputs: alpha and alive state used for depth-sorted drawing."""
 
-    __slots__ = (
-        "x",
-        "y",
-        "z",
-        "color",
-        "birth_time",
-        "jitter_x",
-        "jitter_y",
-        "jitter_z",
-    )
-
-    def __init__(self, x, y, z, color, birth, jitter_x=0.0, jitter_y=0.0, jitter_z=0.0):
-        self.x = x
-        self.y = y
-        self.z = z
+    def __init__(self, x, y, z, color, birth):
+        self.x, self.y, self.z = x, y, z
         self.color = color
         self.birth_time = birth
-        self.jitter_x = jitter_x
-        self.jitter_y = jitter_y
-        self.jitter_z = jitter_z
 
     def get_alpha(self, now):
         age = now - self.birth_time
@@ -63,8 +62,8 @@ class TripleFrequency3DVisualizer:
 
     def __init__(self, w, h):
         self.width, self.height = w, h
-        # 3D trail points stored in world coordinates using deque for efficiency
-        self.points = deque(maxlen=MAX_POINTS)
+        # 3D trail points stored in world coordinates
+        self.points = []
 
         # Three frequencies (x, y, z)
         self.target_freq_x = self.target_freq_y = self.target_freq_z = 0
@@ -74,31 +73,27 @@ class TripleFrequency3DVisualizer:
         self.target_color = (100, 100, 100)
         self.current_color = (100, 100, 100)
 
-        # Speed factor (base multiplier for frequency to phase conversion)
-        self.speed_factor = 0.002
+        self.speed_factor = 0.0003
         self.smooth_factor = 0.1
 
         self.lerp_steps = 30
         self.last_point = self.second_last_point = None
         self.use_catmull_rom = True
 
-        # Time tracking for frame-rate independent animation
-        self.last_update_time = None
-
         # 3D Lissajous amplitude (world space, before projection)
         # Slightly reduced radius so points do not touch the border
         self.axis_scale = 0.9
         # Perspective: X = focal * x / (z + z_offset), Y = focal * y / (z + z_offset)
         # focal ~ z_offset so projected X,Y stay roughly in [-1, 1], then view_scale maps to pixels
-        self.z_offset = 2.5  # z in [-1,1] -> zc in [1.5, 3.5]
-        self.focal = 2.5  # X = focal*x/zc => X in about [-1.7, 1.7]
+        self.z_offset = 2.5   # z in [-1,1] -> zc in [1.5, 3.5]
+        self.focal = 2.5      # X = focal*x/zc => X in about [-1.7, 1.7]
         # Slightly reduced projection scale to leave more margin around the view
         self.view_scale = 240.0  # px = width/2 + view_scale*X => on-screen
 
         # Rotation only (no zoom): mouse drag, slight fixed tilt
         self.base_rot_deg = -23.0  # Reference tilt angle in degrees
         self.base_rot_x = math.radians(self.base_rot_deg)
-        self.rot_x = 0.0  # Dynamic extra pitch (kept at 0, we only use base tilt)
+        self.rot_x = 0.0        # Dynamic extra pitch (kept at 0, we only use base tilt)
         self.rot_y = 0.0
         self.mouse_sensitivity = 0.005  # rad per pixel
 
@@ -106,14 +101,21 @@ class TripleFrequency3DVisualizer:
         self.volume = 1.0
         self.delay = 0.0
 
+    def set_frequencies(self, k1, k2, k3):
+        if all(k in NOTE_FREQUENCIES for k in (k1, k2, k3)):
+            self.set_frequencies_direct(
+                NOTE_FREQUENCIES[k1], NOTE_FREQUENCIES[k2], NOTE_FREQUENCIES[k3]
+            )
+            c1, c2, c3 = NOTE_COLORS[k1], NOTE_COLORS[k2], NOTE_COLORS[k3]
+            r = (c1[0] + c2[0] + c3[0]) // 3
+            g = (c1[1] + c2[1] + c3[1]) // 3
+            b = (c1[2] + c2[2] + c3[2]) // 3
+            self.target_color = (r, g, b)
+
     def set_frequencies_direct(self, f1, f2, f3):
-        """Set target frequencies directly from numeric values.
-        Inputs: f1, f2, f3 frequencies in Hz.
-        Outputs: updates target frequencies and computes target color."""
         self.target_freq_x = f1
         self.target_freq_y = f2
         self.target_freq_z = f3
-        # Generate color based on frequency values
         h1 = (f1 % 1000) / 1000.0
         h2 = (f2 % 1000) / 1000.0
         h3 = (f3 % 1000) / 1000.0
@@ -170,9 +172,6 @@ class TripleFrequency3DVisualizer:
         return x1, y2, z2
 
     def _project(self, x, y, z, clamp=True):
-        """Project 3D point to 2D screen coordinates.
-        Inputs: x, y, z in camera space, optional clamping.
-        Outputs: (px, py) screen coordinates."""
         zc = z + self.z_offset
         if zc <= 0.01:
             zc = 0.01
@@ -197,15 +196,6 @@ class TripleFrequency3DVisualizer:
         Outputs: updates self.points, phases and colors; no return value."""
         now = time.time()
 
-        # Calculate delta time for frame-rate independent animation
-        if self.last_update_time is None:
-            delta_time = 1.0 / 60.0  # Assume 60 FPS for first frame
-        else:
-            delta_time = now - self.last_update_time
-            # Clamp delta_time to avoid huge jumps
-            delta_time = min(delta_time, 0.1)
-        self.last_update_time = now
-
         if self.target_freq_x > 0 and self.target_freq_y > 0 and self.target_freq_z > 0:
             if self.current_freq_x == 0:
                 self.current_freq_x = self.target_freq_x
@@ -213,27 +203,16 @@ class TripleFrequency3DVisualizer:
                 self.current_freq_z = self.target_freq_z
                 self.current_color = self.target_color
             else:
-                self.current_freq_x += (
-                    self.target_freq_x - self.current_freq_x
-                ) * self.smooth_factor
-                self.current_freq_y += (
-                    self.target_freq_y - self.current_freq_y
-                ) * self.smooth_factor
-                self.current_freq_z += (
-                    self.target_freq_z - self.current_freq_z
-                ) * self.smooth_factor
-            # Smooth color transition in HSV space
-            curr_r, curr_g, curr_b = [c / 255.0 for c in self.current_color]
+                self.current_freq_x += (self.target_freq_x - self.current_freq_x) * self.smooth_factor
+                self.current_freq_y += (self.target_freq_y - self.current_freq_y) * self.smooth_factor
+                self.current_freq_z += (self.target_freq_z - self.current_freq_z) * self.smooth_factor
+            curr_r, curr_g, curr_b = [c/255.0 for c in self.current_color]
             curr_h, curr_s, curr_v = colorsys.rgb_to_hsv(curr_r, curr_g, curr_b)
-            target_r, target_g, target_b = [c / 255.0 for c in self.target_color]
-            target_h, target_s, target_v = colorsys.rgb_to_hsv(
-                target_r, target_g, target_b
-            )
+            target_r, target_g, target_b = [c/255.0 for c in self.target_color]
+            target_h, target_s, target_v = colorsys.rgb_to_hsv(target_r, target_g, target_b)
             diff = target_h - curr_h
-            if diff > 0.5:
-                diff -= 1.0
-            elif diff < -0.5:
-                diff += 1.0
+            if diff > 0.5: diff -= 1.0
+            elif diff < -0.5: diff += 1.0
             next_h = (curr_h + diff * self.smooth_factor) % 1.0
             next_s = curr_s + (target_s - curr_s) * self.smooth_factor
             next_v = curr_v + (target_v - curr_v) * self.smooth_factor
@@ -244,22 +223,15 @@ class TripleFrequency3DVisualizer:
             self.current_freq_y *= 0.95
             self.current_freq_z *= 0.95
 
-        if (
-            self.current_freq_x >= 1
-            and self.current_freq_y >= 1
-            and self.current_freq_z >= 1
-        ):
-            # Frame-rate independent phase advancement
-            # Multiply by delta_time and a base rate (60 = target FPS equivalent)
-            time_factor = delta_time * 60.0
-            self.phase_x += self.current_freq_x * self.speed_factor * time_factor
-            self.phase_y += self.current_freq_y * self.speed_factor * time_factor
-            self.phase_z += self.current_freq_z * self.speed_factor * time_factor
+        if self.current_freq_x >= 1 and self.current_freq_y >= 1 and self.current_freq_z >= 1:
+            self.phase_x += self.current_freq_x * self.speed_factor
+            self.phase_y += self.current_freq_y * self.speed_factor
+            self.phase_z += self.current_freq_z * self.speed_factor
 
-            # Generate new 3D trail point in world coordinates using math.sin
-            xw = self.axis_scale * math.sin(self.phase_x)
-            yw = self.axis_scale * math.sin(self.phase_y)
-            zw = self.axis_scale * math.sin(self.phase_z)
+            # Generate new 3D trail point in world coordinates
+            xw = self.axis_scale * np.sin(self.phase_x)
+            yw = self.axis_scale * np.sin(self.phase_y)
+            zw = self.axis_scale * np.sin(self.phase_z)
             color = tuple(int(c) for c in self.current_color)
             curr = TrailPoint3D(xw, yw, zw, color, now)
 
@@ -267,12 +239,7 @@ class TripleFrequency3DVisualizer:
             # Keep interpolation steps stable so point count is mostly delay-independent
             steps = max(0, int(self.lerp_steps))
 
-            if (
-                self.use_catmull_rom
-                and self.second_last_point
-                and self.last_point
-                and steps > 0
-            ):
+            if self.use_catmull_rom and self.second_last_point and self.last_point and steps > 0:
                 p3 = TrailPoint3D(
                     2 * curr.x - self.last_point.x,
                     2 * curr.y - self.last_point.y,
@@ -282,11 +249,7 @@ class TripleFrequency3DVisualizer:
                 )
                 for i in range(1, steps + 1):
                     t = i / (steps + 1)
-                    self.points.append(
-                        self._catmull(
-                            self.second_last_point, self.last_point, curr, p3, t
-                        )
-                    )
+                    self.points.append(self._catmull(self.second_last_point, self.last_point, curr, p3, t))
             elif self.last_point and steps > 0:
                 for i in range(1, steps + 1):
                     t = i / (steps + 1)
@@ -296,11 +259,8 @@ class TripleFrequency3DVisualizer:
             self.second_last_point = self.last_point
             self.last_point = curr
 
-        # Remove expired points from the front of the deque
-        while self.points and not self.points[0].is_alive(now):
-            self.points.popleft()
-
-        # Update last/second_last references
+        # Remove expired points and rebuild last / second_last references
+        self.points = [p for p in self.points if p.is_alive(now)]
         if len(self.points) >= 2:
             self.second_last_point, self.last_point = self.points[-2], self.points[-1]
         elif len(self.points) == 1:
@@ -312,66 +272,53 @@ class TripleFrequency3DVisualizer:
         """Catmull–Rom interpolation between 3D trail points.
         Inputs: four TrailPoint3D control points and parameter t in [0, 1].
         Outputs: new TrailPoint3D with jitter and brightness falloff applied."""
-        t2, t3 = t * t, t * t * t
-        c0 = -0.5 * t3 + t2 - 0.5 * t
-        c1 = 1.5 * t3 - 2.5 * t2 + 1.0
-        c2 = -1.5 * t3 + 2.0 * t2 + 0.5 * t
-        c3 = 0.5 * t3 - 0.5 * t2
-        x = c0 * p0.x + c1 * p1.x + c2 * p2.x + c3 * p3.x
-        y = c0 * p0.y + c1 * p1.y + c2 * p2.y + c3 * p3.y
-        z = c0 * p0.z + c1 * p1.z + c2 * p2.z + c3 * p3.z
-        color = tuple(
-            int(max(0, min(255, c1 * p1.color[i] + c2 * p2.color[i]))) for i in range(3)
-        )
-        birth = (1 - t) * p1.birth_time + t * p2.birth_time
-
-        # Store jitter values with the point instead of recalculating each frame
-        jitter_x = jitter_y = jitter_z = 0.0
+        t2, t3 = t*t, t*t*t
+        c0 = -0.5*t3 + t2 - 0.5*t
+        c1 = 1.5*t3 - 2.5*t2 + 1.0
+        c2 = -1.5*t3 + 2.0*t2 + 0.5*t
+        c3 = 0.5*t3 - 0.5*t2
+        x = c0*p0.x + c1*p1.x + c2*p2.x + c3*p3.x
+        y = c0*p0.y + c1*p1.y + c2*p2.y + c3*p3.y
+        z = c0*p0.z + c1*p1.z + c2*p2.z + c3*p3.z
+        color = tuple(int(max(0, min(255, c1*p1.color[i] + c2*p2.color[i]))) for i in range(3))
+        birth = (1-t)*p1.birth_time + t*p2.birth_time
+        # Larger delay scatters points more around the main curve; closer points stay brighter
         if self.delay > 0.0:
             # Overall scale of spatial jitter is reduced by about 3.5x
             jitter_amp = self.axis_scale * (0.4 / 3.5) * self.delay
-            jitter_x = jitter_amp * (random.random() * 2 - 1)
-            jitter_y = jitter_amp * (random.random() * 2 - 1)
-            jitter_z = jitter_amp * (random.random() * 2 - 1)
-            x += jitter_x
-            y += jitter_y
-            z += jitter_z
-            d = math.sqrt(
-                jitter_x * jitter_x + jitter_y * jitter_y + jitter_z * jitter_z
-            )
+            dx = jitter_amp * (random.random()*2 - 1)
+            dy = jitter_amp * (random.random()*2 - 1)
+            dz = jitter_amp * (random.random()*2 - 1)
+            x += dx
+            y += dy
+            z += dz
+            d = math.sqrt(dx*dx + dy*dy + dz*dz) if jitter_amp > 0 else 0.0
             # Farther from the original curve, points become slightly dimmer (down to ~60%)
-            falloff = 1.0 - 0.4 * min(1.0, d / jitter_amp) if jitter_amp > 0 else 1.0
+            falloff = 1.0 - 0.4 * min(1.0, d / jitter_amp)
             color = tuple(int(c * falloff) for c in color)
-
-        return TrailPoint3D(x, y, z, color, birth, jitter_x, jitter_y, jitter_z)
+        return TrailPoint3D(x, y, z, color, birth)
 
     def _lerp(self, p1, p2, t):
         """Linear interpolation between two 3D trail points.
         Inputs: endpoints p1/p2 and parameter t in [0, 1].
         Outputs: new TrailPoint3D with optional jitter and brightness falloff."""
-        x = p1.x * (1 - t) + p2.x * t
-        y = p1.y * (1 - t) + p2.y * t
-        z = p1.z * (1 - t) + p2.z * t
-        color = tuple(int(p1.color[i] * (1 - t) + p2.color[i] * t) for i in range(3))
-        birth = p1.birth_time * (1 - t) + p2.birth_time * t
-
-        # Store jitter values with the point instead of recalculating each frame
-        jitter_x = jitter_y = jitter_z = 0.0
+        x = p1.x*(1-t) + p2.x*t
+        y = p1.y*(1-t) + p2.y*t
+        z = p1.z*(1-t) + p2.z*t
+        color = tuple(int(p1.color[i]*(1-t) + p2.color[i]*t) for i in range(3))
+        birth = p1.birth_time*(1-t) + p2.birth_time*t
         if self.delay > 0.0:
             jitter_amp = self.axis_scale * (0.4 / 3.5) * self.delay
-            jitter_x = jitter_amp * (random.random() * 2 - 1)
-            jitter_y = jitter_amp * (random.random() * 2 - 1)
-            jitter_z = jitter_amp * (random.random() * 2 - 1)
-            x += jitter_x
-            y += jitter_y
-            z += jitter_z
-            d = math.sqrt(
-                jitter_x * jitter_x + jitter_y * jitter_y + jitter_z * jitter_z
-            )
-            falloff = 1.0 - 0.4 * min(1.0, d / jitter_amp) if jitter_amp > 0 else 1.0
+            dx = jitter_amp * (random.random()*2 - 1)
+            dy = jitter_amp * (random.random()*2 - 1)
+            dz = jitter_amp * (random.random()*2 - 1)
+            x += dx
+            y += dy
+            z += dz
+            d = math.sqrt(dx*dx + dy*dy + dz*dz) if jitter_amp > 0 else 0.0
+            falloff = 1.0 - 0.4 * min(1.0, d / jitter_amp)
             color = tuple(int(c * falloff) for c in color)
-
-        return TrailPoint3D(x, y, z, color, birth, jitter_x, jitter_y, jitter_z)
+        return TrailPoint3D(x, y, z, color, birth)
 
     def draw(self, surf):
         """Render 3D axes, trail particles and glow to a surface.
@@ -381,7 +328,6 @@ class TripleFrequency3DVisualizer:
         items = []  # (depth, kind, color, size, x1, y1, x2?, y2?)
         vol_gain = 1.0 + 1.5 * self.volume
 
-        # Project all points once
         projected = []
         if self.points:
             for p in self.points:
@@ -397,7 +343,6 @@ class TripleFrequency3DVisualizer:
                 py = max(0, min(self.height - 1, py))
                 projected.append((px, py, zr, zc))
 
-        # Draw 3D axes
         axis_len = 1.8
         axis_color = Theme.GOLD_DIM
         axes = [
@@ -423,7 +368,6 @@ class TripleFrequency3DVisualizer:
             depth = (zc0 + zc1) / 2.0
             items.append((depth, "line", axis_color, 3, px0, py0, px1, py1))
 
-        # Draw axis arrows
         arrow_len = 12
         margin = 4
         for (x0, y0, z0), (x1, y1, z1) in axes:
@@ -458,12 +402,10 @@ class TripleFrequency3DVisualizer:
             items.append((depth_arrow, "line", axis_color, 3, tx, ty, lx, ly))
             items.append((depth_arrow, "line", axis_color, 3, tx, ty, rx, ry))
 
-        # Draw center point
         center_x = self.width / 2
         center_y = self.height / 2
         pygame.draw.circle(surf, (200, 200, 200), (int(center_x), int(center_y)), 3)
 
-        # Draw glow effect for the last point and collect trail points
         if self.points:
             last = self.points[-1]
             xr, yr, zr = self._rotate_point(last.x, last.y, last.z)
@@ -483,7 +425,6 @@ class TripleFrequency3DVisualizer:
                 surf.blit(s, (px - 25, py - 25))
                 pygame.draw.circle(surf, (255, 255, 255), (int(px), int(py)), 4)
 
-            # Add trail points to render list
             if projected:
                 for (pxp, pyp, zr_p, zc_p), p in zip(projected, self.points):
                     a = p.get_alpha(now)
@@ -492,18 +433,17 @@ class TripleFrequency3DVisualizer:
                     base_c = p.color
                     c = tuple(int(min(255, base_c[k] * a * vol_gain)) for k in range(3))
                     radius = max(1, int((1 + 1.5 * a) * 0.25))
-                    # Use stored jitter instead of recalculating
-                    pxj = pxp + p.jitter_x * 10  # Scale jitter for screen space
-                    pyj = pyp + p.jitter_y * 10
-                    items.append((zc_p, "point", c, radius, pxj, pyj, 0, 0))
+                    for _ in range(2):
+                        jx = (random.random()*2 - 1) * 1.0
+                        jy = (random.random()*2 - 1) * 1.0
+                        pxj = pxp + jx
+                        pyj = pyp + jy
+                        items.append((zc_p, "point", c, radius, pxj, pyj, 0, 0))
 
-        # Sort by depth (back to front) and render
         items.sort(key=lambda it: it[0], reverse=True)
         for _, kind, color, size, x1, y1, x2, y2 in items:
             if kind == "line":
-                pygame.draw.line(
-                    surf, color, (int(x1), int(y1)), (int(x2), int(y2)), int(size)
-                )
+                pygame.draw.line(surf, color, (int(x1), int(y1)), (int(x2), int(y2)), int(size))
             elif kind == "point":
                 pygame.draw.circle(surf, color, (int(x1), int(y1)), int(size))
 
@@ -511,6 +451,6 @@ class TripleFrequency3DVisualizer:
         """Clear all trail points and reset interpolation state.
         Inputs: none.
         Outputs: empties point list and last/second_last references."""
-        self.points.clear()
+        self.points = []
         self.last_point = None
         self.second_last_point = None
