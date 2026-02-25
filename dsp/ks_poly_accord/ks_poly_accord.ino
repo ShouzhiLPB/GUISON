@@ -7,24 +7,30 @@
 #define VOL_PIN A8
 #define T60_PIN A0
 
+#define KEY_NEXT_PIN 16
+#define KEY_PREV_PIN 17
+#define MODE_PIN 18
+
 int buttonPins[NUM_CHORDS] = { 0, 1, 2, 3, 4, 5, 9 };
 
 
 // C4 Major chords scale
-int chordNotes[NUM_CHORDS][VOICES_PER_CHORD] = {
-  { 60, 64, 67 },  // C major : I
-  { 62, 65, 69 },  // D minor : ii
-  { 64, 67, 71 },  // E minor : iii
-  { 65, 69, 72 },  // F major : IV
-  { 67, 71, 74 },  // G major : V
-  { 69, 72, 76 },  // A minor : vi
-  { 71, 74, 77 }   // B diminished : vii°
-};
+// int chordNotes[NUM_CHORDS][VOICES_PER_CHORD] = {
+//   { 60, 64, 67 },  // C major : I
+//   { 62, 65, 69 },  // D minor : ii
+//   { 64, 67, 71 },  // E minor : iii
+//   { 65, 69, 72 },  // F major : IV
+//   { 67, 71, 74 },  // G major : V
+//   { 69, 72, 76 },  // A minor : vi
+//   { 71, 74, 77 }   // B diminished : vii°
+// };
+int majorScale[7] = {0,2,4,5,7,9,11};
+int minorScale[7] = {0,2,3,5,7,8,10};
 
-
+int root = 0;
+bool isMajor = true;
 
 int strumDelay = 20;
-
 ks_mono voices[VOICES_PER_CHORD];
 
 unsigned long chordStartTime = 0;
@@ -48,17 +54,21 @@ AudioConnection* patchDelay;
 
 bool lastState[NUM_CHORDS] = { false };
 
-void MidiToFreq(int notes[], float freqArray[]) {
-  for (int i = 0; i < VOICES_PER_CHORD; i++) {
-    freqArray[i] = (float)(440.0 * pow(2.0, (notes[i] - 69) / 12.0));
-  }
-}
+// void MidiToFreq(int notes[], float freqArray[]) {
+//   for (int i = 0; i < VOICES_PER_CHORD; i++) {
+//     freqArray[i] = (float)(440.0 * pow(2.0, (notes[i] - 69) / 12.0));
+//   }
+// }
 
 void setup() {
 
   for (int i = 0; i < NUM_CHORDS; i++) {
     pinMode(buttonPins[i], INPUT);
   }
+
+  pinMode(KEY_NEXT_PIN, INPUT);
+  pinMode(KEY_PREV_PIN, INPUT);
+  pinMode(MODE_PIN, INPUT);
 
   AudioMemory(80);
 
@@ -82,6 +92,29 @@ void setup() {
 
 
 void loop() {
+  static bool lastNext = false;
+  static bool lastPrev = false;
+  static bool lastMode = false;
+
+  bool nextPressed = digitalRead(KEY_NEXT_PIN);
+  bool prevPressed = digitalRead(KEY_PREV_PIN);
+  bool modePressed = digitalRead(MODE_PIN);
+
+  if (nextPressed && !lastNext) {
+    root = (root + 7) % 12;
+  }
+
+  if (prevPressed && !lastPrev) {
+    root = (root + 5) % 12;
+  }
+
+  if (modePressed && !lastMode) {
+	isMajor = !isMajor;
+  }
+
+  lastNext = nextPressed;
+  lastPrev = prevPressed;
+  lastMode = modePressed;
 
   float vol_value = floorf(analogRead(VOL_PIN) / 1023.0f * 100.0f) / 100.0f;
   float t60_value = 10.0f + (analogRead(T60_PIN) / 1023.0f) * 91.0f;
@@ -121,12 +154,21 @@ void loop() {
 
   if (chordPlaying && activeChord >= 0) {
 
-    unsigned long now = millis();
-    unsigned long dt = now - chordStartTime;
+	int* scale = isMajor ? majorScale : minorScale;
+	int degree = activeChord;
 
     float freqArray[VOICES_PER_CHORD];
-    MidiToFreq(chordNotes[activeChord], freqArray);
+	int noteValues[VOICES_PER_CHORD];
 
+	for (int v = 0; v < VOICES_PER_CHORD; v++) {
+		int noteIndex = (degree + 2*v) % 7;
+		int noteValue = 60 + root + scale[noteIndex];
+		noteValues[v] = noteValue;
+		freqArray[v] = (float)(440.0 * pow(2.0, (noteValue - 69) / 12.0));
+	}
+
+    unsigned long now = millis();
+    unsigned long dt = now - chordStartTime;
 
     for (int v = 0; v < VOICES_PER_CHORD; v++) {
 
@@ -138,7 +180,8 @@ void loop() {
                         freqArray[1],
                         freqArray[2]);
         }
-        voices[v].setParamValue("note", chordNotes[activeChord][v]);
+
+		voices[v].setParamValue("note", noteValues[v]);
         voices[v].setParamValue("gate", 1);
         noteTriggered[v] = true;
       }
