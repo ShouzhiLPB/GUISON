@@ -33,8 +33,6 @@ bool noteTriggered[VOICES_PER_CHORD] = { false };
 AudioMixer4 mixer;
 AudioOutputI2S out;
 AudioControlSGTL5000 audioShield;
-AudioRecordQueue queueL;
-AudioRecordQueue queueR;
 AudioEffectDelay delayR;
 
 // Audio connections
@@ -73,20 +71,10 @@ void setup() {
 
   // mixer → stereo out
   patchDelay = new AudioConnection(mixer, 0, delayR, 0);
-
   patchOutL = new AudioConnection(mixer, 0, out, 0);
   patchOutR = new AudioConnection(delayR, 0, out, 1);
-
-  patchQueueL = new AudioConnection(mixer, 0, queueL, 0);
-  patchQueueR = new AudioConnection(delayR, 0, queueR, 0);
-
   delayR.delay(0, 5);
   randomSeed(analogRead(A0));
-  // analogReadResolution(10);
-  // analogReadAveraging(8);
-
-  queueL.begin();
-  queueR.begin();
   Serial.begin(1000000);
 }
 
@@ -95,7 +83,7 @@ void loop() {
 
   float vol_value = floorf(analogRead(VOL_PIN) / 1023.0f * 100.0f) / 100.0f;
   float t60_value = 10.0f + (analogRead(T60_PIN) / 1023.0f) * 91.0f;
-  Serial.printf("%.3f\n", t60_value);
+  // Serial.printf("%.3f\n", t60_value);
 
   for (int i = 0; i < NUM_CHORDS; i++) {
 
@@ -115,11 +103,6 @@ void loop() {
       chordPlaying = true;
 
       strumDelay = 30 + random(0, 10);
-
-      // for (int v = 0; v < VOICES_PER_CHORD; v++) {
-      // 	noteTriggered[v] = false;
-      // 	voices[v].setParamValue("gate", 0);
-      // }
     }
 
     if (!pressed && lastState[i] && i == activeChord) {
@@ -148,41 +131,5 @@ void loop() {
         noteTriggered[v] = true;
       }
     }
-
-    // if (dt > VOICES_PER_CHORD * strumDelay) {
-    // 	chordPlaying = false;
-    // }
-  }
-
-  static int blockCounter = 0;
-
-  while (queueL.available() && queueR.available()) {
-
-    int16_t* bufferL = queueL.readBuffer();
-    int16_t* bufferR = queueR.readBuffer();
-
-    blockCounter++;
-
-    if (blockCounter >= 4) {
-      for (int i = 0; i < 128; i += 8) {
-        //Serial.print(bufferL[i]);
-        //Serial.print(", ");
-        //Serial.println(bufferR[i]);
-        Serial.write((uint8_t*)&bufferL[i], 2);
-        Serial.write((uint8_t*)&bufferR[i], 2);
-      }
-
-      blockCounter = 0;
-    }
-
-    queueL.freeBuffer();
-    queueR.freeBuffer();
-  }
-
-  while (queueL.available() > 10) {
-    queueL.freeBuffer();
-  }
-  while (queueR.available() > 10) {
-    queueR.freeBuffer();
   }
 }
