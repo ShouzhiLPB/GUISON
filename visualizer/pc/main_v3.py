@@ -11,10 +11,10 @@ import numpy as np
 import sys
 import os
 
-# Import visualizer components
+# Import visualizer components (shared 3D engine)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
-from demo_v3 import DualFrequencyVisualizer, TimedPoint
+from visualizer_3d import TripleFrequency3DVisualizer
 from ui import Theme, Button, Label, Panel, Slider, FrequencyBar, draw_grid, draw_corners
 
 # ============================================
@@ -47,7 +47,14 @@ MINOR_KEYS = [
 # ============================================
 
 class SerialComm:
+    """Manage serial link to Teensy for frequencies and key events.
+    Inputs: optional serial port name or None for auto-detection.
+    Outputs: maintains connection state and latest frequency readings."""
+
     def __init__(self, port=None):
+        """Initialize serial communication fields.
+        Inputs: port name string or None to delay auto-detection.
+        Outputs: sets instance attributes only, no return value."""
         self.port = port
         self.ser = None
         self.connected = False
@@ -55,9 +62,13 @@ class SerialComm:
         self.read_thread = None
         self.latest_freq1 = None
         self.latest_freq2 = None
+        self.latest_freq3 = None
         self.freq_lock = threading.Lock()
     
     def connect(self, port=None):
+        """Open serial port and start communication.
+        Inputs: optional explicit port name; None triggers auto-detect.
+        Outputs: True on success, False if connection fails."""
         if port is None:
             ports = serial.tools.list_ports.comports()
             for p in ports:
@@ -77,24 +88,36 @@ class SerialComm:
             return True
         except:
             return False
-
+    
     def disconnect(self):
+        """Stop reading thread and close serial port.
+        Inputs: none; uses current connection state.
+        Outputs: no return; updates running and connected flags."""
         self.running = False
         if self.read_thread: self.read_thread.join(timeout=1.0)
         if self.ser and self.ser.is_open: self.ser.close()
         self.connected = False
-
+    
     def send_key(self, note, velocity=100):
+        """Send a note-on style message to the Teensy.
+        Inputs: MIDI note number and velocity integer.
+        Outputs: writes to serial if connected; no return."""
         if self.connected:
             try: self.ser.write(f"KEY:{note}:{velocity}\n".encode())
             except: pass
-
+    
     def send_key_off(self, note):
+        """Send a note-off style message to the Teensy.
+        Inputs: MIDI note number to release.
+        Outputs: writes to serial if connected; no return."""
         if self.connected:
             try: self.ser.write(f"KEY_OFF:{note}\n".encode())
             except: pass
-
+    
     def read_loop(self):
+        """Background loop to parse FREQ:f1:f2:f3 lines.
+        Inputs: reads from open serial port while running is True.
+        Outputs: updates latest_freq1/2/3 under lock; no return."""
         self.running = True
         while self.running:
             if self.ser and self.ser.in_waiting > 0:
@@ -102,26 +125,36 @@ class SerialComm:
                     line = self.ser.readline().decode(errors='ignore').strip()
                     if line.startswith("FREQ:"):
                         parts = line.split(":")
-                        if len(parts) >= 3:
+                        if len(parts) >= 4:
                             with self.freq_lock:
                                 self.latest_freq1 = float(parts[1])
                                 self.latest_freq2 = float(parts[2])
+                                self.latest_freq3 = float(parts[3])
                 except: pass
             time.sleep(0.01)
-
+    
     def start_reading(self):
+        """Spawn reader thread if connected and not already running.
+        Inputs: none; uses current connection state.
+        Outputs: starts daemon read thread; no return."""
         if self.connected and not self.running:
             self.read_thread = threading.Thread(target=self.read_loop, daemon=True)
             self.read_thread.start()
-
+    
     def get_frequencies(self):
-        with self.freq_lock: return self.latest_freq1, self.latest_freq2
-
+        """Return the latest triple of frequencies.
+        Inputs: none; thread-safe via internal lock.
+        Outputs: tuple (freq1, freq2, freq3) or Nones if not yet received."""
+        with self.freq_lock: return self.latest_freq1, self.latest_freq2, self.latest_freq3
+    
 # ============================================
 # Helper Functions
 # ============================================
-
+    
 def get_midi_note(key_number, offset):
+    """Map a UI key index to a MIDI note in the chosen key.
+    Inputs: key_number 1–8 and semitone key offset.
+    Outputs: MIDI note 0–127 or None if key_number is out of range."""
     scale = [0, 2, 4, 5, 7, 9, 11, 12]
     if 1 <= key_number <= 8:
         return max(0, min(127, 60 + scale[key_number-1] + offset))
@@ -138,15 +171,18 @@ KEY_TO_NUMBER = {
 # ============================================
 # 🎹 Key Selection Screen (Hearthstone Style)
 # ============================================
-
+    
 def select_key_signature(screen):
+    """Interactive screen to choose a musical key.
+    Inputs: main pygame display surface for drawing.
+    Outputs: (key_name, offset) tuple or None if user cancels."""
     clock = pygame.time.Clock()
     
     # Generate Buttons (Cards)
     major_buttons = []
     minor_buttons = []
     
-    # Layout Config - 填满屏幕的布局
+    # Layout config - fill the screen with key cards
     cols = 3
     rows = 5
     
@@ -156,7 +192,7 @@ def select_key_signature(screen):
     
     panel_width = (WIDTH - margin_x * 2 - 40) // 2
     card_w = (panel_width - (cols - 1) * gap) // cols
-    card_h = 80 # 卡片高度
+    card_h = 80  # Card height in pixels
     
     selected_key = None # (name, midi)
     
@@ -277,8 +313,12 @@ def select_key_signature(screen):
 # ============================================
 
 def main():
+    """Main application loop for SON V3 visualizer.
+    Inputs: none; reads serial data and keyboard/mouse events.
+    Outputs: runs until quit event is received; no explicit return."""
     pygame.init()
     Theme.init_fonts()
+    # Match demo_v3 window size: 1280×800, main view 960×800
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption("SON V3 Professional")
     clock = pygame.time.Clock()
@@ -289,7 +329,7 @@ def main():
     key_name, key_offset = key_sig
     
     # Setup
-    viz = DualFrequencyVisualizer(MAIN_VIEW_WIDTH, HEIGHT)
+    viz = TripleFrequency3DVisualizer(MAIN_VIEW_WIDTH, HEIGHT)
     comm = SerialComm()
     comm.connect()
     comm.start_reading()
@@ -303,55 +343,88 @@ def main():
     # --- Sidebar Elements ---
     y = 20
     lbl_title = Label(30, y, "SON VISUALIZER V3", Theme.FONT_TITLE, Theme.GOLD_PRIMARY)
-    y += 50
+    y += 40
     lbl_status = Label(30, y, "Status: Connected" if comm.connected else "Status: Offline", 
                        Theme.FONT_MAIN, Theme.SUCCESS_GREEN if comm.connected else Theme.ERROR_RED)
-    y += 30
+    y += 24
     lbl_key = Label(30, y, f"Key: {key_name}", Theme.FONT_MAIN, Theme.TEXT_WHITE)
-    
     ui_elements.extend([lbl_title, lbl_status, lbl_key])
     
+    y += 40
+    bar_x = FrequencyBar(30, y, 260, 20, "X Freq", max_freq=1000, color=(255, 100, 100))
     y += 50
-    bar_x = FrequencyBar(30, y, 260, 20, "X-Axis Freq", max_freq=1000, color=(255, 100, 100))
-    y += 60
-    bar_y = FrequencyBar(30, y, 260, 20, "Y-Axis Freq", max_freq=1000, color=(100, 200, 255))
-    ui_elements.extend([bar_x, bar_y])
+    bar_y = FrequencyBar(30, y, 260, 20, "Y Freq", max_freq=1000, color=(100, 200, 255))
+    y += 50
+    bar_z = FrequencyBar(30, y, 260, 20, "Z Freq", max_freq=1000, color=(100, 255, 150))
+    ui_elements.extend([bar_x, bar_y, bar_z])
     
-    y += 60
-    lbl_ratio = Label(30, y, "Ratio: --", Theme.FONT_MAIN, Theme.TEXT_GOLD)
-    y += 30
+    y += 50
     lbl_points = Label(30, y, "Points: 0", Theme.FONT_MAIN, Theme.TEXT_GRAY)
-    ui_elements.extend([lbl_ratio, lbl_points])
+    ui_elements.append(lbl_points)
     
-    y += 50
+    y += 30
+    lbl_tilt = Label(30, y, f"Tilt: {viz.base_rot_deg:.0f}°", Theme.FONT_MAIN, Theme.TEXT_GRAY)
+    ui_elements.append(lbl_tilt)
+    y += 30
+    def tilt_minus(): viz.set_base_tilt_deg(viz.base_rot_deg - 5)
+    def tilt_plus(): viz.set_base_tilt_deg(viz.base_rot_deg + 5)
+    def tilt_reset(): viz.set_base_tilt_deg(-23.0)
+    btn_tilt_minus = Button(30, y, 80, 32, "Tilt -", tilt_minus)
+    btn_tilt_plus = Button(120, y, 80, 32, "Tilt +", tilt_plus)
+    btn_tilt_reset = Button(210, y, 80, 32, "Reset", tilt_reset)
+    ui_elements.extend([btn_tilt_minus, btn_tilt_plus, btn_tilt_reset])
+    
+    y += 42
     def set_smooth(val): viz.lerp_steps = int(val)
     slider_smooth = Slider(30, y, 260, 0, 50, 30, "Smoothness", set_smooth)
     ui_elements.append(slider_smooth)
     
-    y += 60
-    def toggle_interp():
-        viz.use_catmull_rom = not viz.use_catmull_rom
-        btn_interp.text = "Mode: Catmull" if viz.use_catmull_rom else "Mode: Linear"
-    btn_interp = Button(30, y, 260, 40, "Mode: Catmull", toggle_interp)
-    y += 50
+    y += 52
+    # Volume = glow intensity/saturation; Attenuation = trail continuity and particle spread (decay time)
+    def set_volume_slider(v): viz.set_volume(v / 100.0)
+    slider_volume = Slider(30, y, 260, 0, 100, 100, "Volume", set_volume_slider)
+    ui_elements.append(slider_volume)
+    y += 52
+    def set_attenuation_slider(v): viz.set_delay(v / 100.0)
+    slider_attenuation = Slider(30, y, 260, 0, 100, 0, "Atténuation", set_attenuation_slider)
+    ui_elements.append(slider_attenuation)
+    y += 52
     btn_clear = Button(30, y, 260, 40, "Clear Screen", viz.clear)
-    y += 50
+    y += 44
     btn_exit = Button(30, y, 260, 40, "Exit Application", lambda: pygame.event.post(pygame.event.Event(pygame.QUIT)))
-    ui_elements.extend([btn_interp, btn_clear, btn_exit])
+    ui_elements.extend([btn_clear, btn_exit])
     
     running = True
     pressed_keys = {}
     last_update = time.time()
+    drag_started = False
+    last_mouse = (0, 0)
     
     while running:
         mouse_pos = pygame.mouse.get_pos()
         
         for event in pygame.event.get():
-            if event.type == pygame.QUIT: running = False
-            for el in ui_elements: el.handle_event(event)
+            if event.type == pygame.QUIT:
+                running = False
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if event.pos[0] >= SIDEBAR_WIDTH:
+                    drag_started = True
+                    last_mouse = event.pos
+            elif event.type == pygame.MOUSEMOTION and drag_started and event.buttons[0]:
+                dx = event.pos[0] - last_mouse[0]
+                dy = event.pos[1] - last_mouse[1]
+                viz.add_rotation(dx, dy)
+                last_mouse = event.pos
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                drag_started = False
+
+            for el in ui_elements:
+                el.handle_event(event)
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE: running = False
-                elif event.key == pygame.K_SPACE: viz.clear()
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                elif event.key == pygame.K_SPACE:
+                    viz.clear()
                 elif event.key in KEY_TO_NUMBER:
                     k = KEY_TO_NUMBER[event.key]
                     note = get_midi_note(k, key_offset)
@@ -367,17 +440,17 @@ def main():
 
         now = time.time()
         if now - last_update > FREQ_UPDATE_INTERVAL:
-            f1, f2 = comm.get_frequencies()
-            if f1 and f2:
-                if abs(viz.freq1 or 0 - f1) > 0.1 or abs(viz.freq2 or 0 - f2) > 0.1:
-                    viz.set_frequencies_direct(f1, f2)
+            f1, f2, f3 = comm.get_frequencies()
+            if f1 is not None and f2 is not None and f3 is not None:
+                viz.set_frequencies_direct(f1, f2, f3)
                 bar_x.set_value(f1)
                 bar_y.set_value(f2)
-                lbl_ratio.set_text(f"Ratio: {f2/f1:.3f}")
+                bar_z.set_value(f3)
             last_update = now
             
         viz.update()
         lbl_points.set_text(f"Points: {len(viz.points)}")
+        lbl_tilt.set_text(f"Tilt: {viz.base_rot_deg:.0f}°")
         
         # Sidebar
         screen.fill(Theme.BLACK_BG, sidebar_rect)
@@ -394,9 +467,11 @@ def main():
         viz.draw(main_surf)
         draw_corners(main_surf, main_surf.get_rect().inflate(-40, -40))
         
-        if not viz.freq1:
-            hint = Theme.FONT_TITLE.render("Waiting for Frequency...", True, (100, 100, 100))
+        if viz.current_freq_x <= 1 or viz.current_freq_y <= 1 or viz.current_freq_z <= 1:
+            hint = Theme.FONT_TITLE.render("Waiting for 3 Frequencies...", True, (100, 100, 100))
             main_surf.blit(hint, hint.get_rect(center=(MAIN_VIEW_WIDTH//2, HEIGHT//2)))
+        hint_drag = Theme.FONT_SMALL.render("Drag to rotate (no zoom)", True, (80, 80, 80))
+        main_surf.blit(hint_drag, (12, HEIGHT - 28))
             
         pygame.display.flip()
         clock.tick(60)
