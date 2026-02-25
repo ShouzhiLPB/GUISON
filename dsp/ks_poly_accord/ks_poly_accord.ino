@@ -21,6 +21,8 @@ int chordNotes[NUM_CHORDS][VOICES_PER_CHORD] = {
   { 71, 74, 77 }   // B diminished : vii°
 };
 
+
+
 int strumDelay = 20;
 
 ks_mono voices[VOICES_PER_CHORD];
@@ -46,7 +48,7 @@ AudioConnection* patchDelay;
 
 bool lastState[NUM_CHORDS] = { false };
 
-void MidiToFreq(int notes[], float* freqArray) {
+void MidiToFreq(int notes[], float freqArray[]) {
   for (int i = 0; i < VOICES_PER_CHORD; i++) {
     freqArray[i] = (float)(440.0 * pow(2.0, (notes[i] - 69) / 12.0));
   }
@@ -122,10 +124,20 @@ void loop() {
     unsigned long now = millis();
     unsigned long dt = now - chordStartTime;
 
+    float freqArray[VOICES_PER_CHORD];
+    MidiToFreq(chordNotes[activeChord], freqArray);
+
+
     for (int v = 0; v < VOICES_PER_CHORD; v++) {
 
-      if (!noteTriggered[v] && dt > v * strumDelay) {  // un ecart entre chaque note
+      if (!noteTriggered[v] && dt > (unsigned long)(v * strumDelay)) {  // un ecart entre chaque note
 
+        if (v == 0) {
+          Serial.printf("%.2f; %.2f; %.2f;\n",
+                        freqArray[0],
+                        freqArray[1],
+                        freqArray[2]);
+        }
         voices[v].setParamValue("note", chordNotes[activeChord][v]);
         voices[v].setParamValue("gate", 1);
         noteTriggered[v] = true;
