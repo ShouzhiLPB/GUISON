@@ -4,7 +4,7 @@
 pyserial==3.5
 
 # Rendu graphique (choisir l'un)
-pygame==2.5.2          # Graphiques 2D (simple, recommandé pour débuter)
+pygame-ce>=2.5.6       # Graphiques 2D (Community Edition, compatible Python 3.14+)
 # moderngl==5.10.0     # OpenGL (haute performance, effets spectaculaires)
 # PyOpenGL==3.1.7      # OpenGL (solution traditionnelle)
 
