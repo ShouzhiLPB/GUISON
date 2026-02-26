@@ -6,10 +6,9 @@
 
 #define VOL_PIN A8
 #define T60_PIN A0
+#define STRUM_PIN A3
 
-#define KEY_NEXT_PIN 16
-#define KEY_PREV_PIN 17
-#define MODE_PIN 18
+#define MODE_PIN 16
 
 int buttonPins[NUM_CHORDS] = { 0, 1, 2, 3, 4, 5, 9 };
 
@@ -66,8 +65,6 @@ void setup() {
     pinMode(buttonPins[i], INPUT);
   }
 
-  pinMode(KEY_NEXT_PIN, INPUT);
-  pinMode(KEY_PREV_PIN, INPUT);
   pinMode(MODE_PIN, INPUT);
 
   AudioMemory(80);
@@ -92,32 +89,15 @@ void setup() {
 
 
 void loop() {
-  static bool lastNext = false;
-  static bool lastPrev = false;
-  static bool lastMode = false;
 
-  bool nextPressed = digitalRead(KEY_NEXT_PIN);
-  bool prevPressed = digitalRead(KEY_PREV_PIN);
-  bool modePressed = digitalRead(MODE_PIN);
-
-  if (nextPressed && !lastNext) {
-    root = (root + 7) % 12;
-  }
-
-  if (prevPressed && !lastPrev) {
-    root = (root + 5) % 12;
-  }
-
-  if (modePressed && !lastMode) {
-	isMajor = !isMajor;
-  }
-
-  lastNext = nextPressed;
-  lastPrev = prevPressed;
-  lastMode = modePressed;
+  bool shift = digitalRead(MODE_PIN);
+  //Serial.println(shift);
 
   float vol_value = floorf(analogRead(VOL_PIN) / 1023.0f * 100.0f) / 100.0f;
   float t60_value = 10.0f + (analogRead(T60_PIN) / 1023.0f) * 91.0f;
+  float strumPot = analogRead(STRUM_PIN) / 1023.0f;
+  int baseStrum = 10 + pow(strumPot, 2) * 150; // baseStrum changes between 10ms and 150ms.
+
   // Serial.printf("%.3f\n", t60_value);
 
   for (int i = 0; i < NUM_CHORDS; i++) {
@@ -125,22 +105,36 @@ void loop() {
     bool pressed = digitalRead(buttonPins[i]);
 
     if (pressed && !lastState[i]) {
+	  if (shift) {
+		if (i == 0) {
+            root = (root + 5) % 12;
+			Serial.printf("Key changed: %d\n", root);
+        }
+        else if (i == 1) {
+            root = (root + 7) % 12;
+			Serial.printf("Key changed: %d\n", root);
+        }
+        else if (i == 2) {
+            isMajor = !isMajor;
+			Serial.println(isMajor ? "Major" : "Minor");
+        }
+	  } else {
+		for (int v = 0; v < VOICES_PER_CHORD; v++) {
+			voices[v].setParamValue("gate", 0);
+			voices[v].setParamValue("t60", t60_value);
+			mixer.gain(v, vol_value);
+			noteTriggered[v] = false;
+		}
 
-      for (int v = 0; v < VOICES_PER_CHORD; v++) {
-        voices[v].setParamValue("gate", 0);
-        voices[v].setParamValue("t60", t60_value);
-        mixer.gain(v, vol_value);
-        noteTriggered[v] = false;
-      }
+		chordStartTime = millis();
+		activeChord = i;
+		chordPlaying = true;
 
-      chordStartTime = millis();
-      activeChord = i;
-      chordPlaying = true;
+		strumDelay = baseStrum + random(0, 20);
+	  }
+  }
 
-      strumDelay = 30 + random(0, 10);
-    }
-
-    if (!pressed && lastState[i] && i == activeChord) {
+    if (!pressed && lastState[i] && i == activeChord && !shift) {
 
       for (int v = 0; v < VOICES_PER_CHORD; v++) {
         voices[v].setParamValue("gate", 0);
@@ -152,7 +146,7 @@ void loop() {
     lastState[i] = pressed;
   }
 
-  if (chordPlaying && activeChord >= 0) {
+  if (chordPlaying && activeChord >= 0 && !shift) {
 
 	int* scale = isMajor ? majorScale : minorScale;
 	int degree = activeChord;
@@ -162,7 +156,7 @@ void loop() {
 
 	for (int v = 0; v < VOICES_PER_CHORD; v++) {
 		int noteIndex = (degree + 2*v) % 7;
-		int noteValue = 60 + root + scale[noteIndex];
+		int noteValue = 60 + root + scale[noteIndex] + ((degree + 2*v) / 7) * 12;
 		noteValues[v] = noteValue;
 		freqArray[v] = (float)(440.0 * pow(2.0, (noteValue - 69) / 12.0));
 	}
