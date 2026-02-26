@@ -9,7 +9,6 @@ import time
 
 import pygame
 import serial
-
 from ui import Button, FrequencyBar, Label, Slider, Theme, draw_corners, draw_grid
 from visualizer_3d import TripleFrequency3DVisualizer
 
@@ -44,6 +43,11 @@ class TeensyReader:
         self.connected = False
         self.last_error = None
         self.new_data = False  # Flag to indicate new data received
+
+        # State information from Teensy
+        self.chord_type = ""  # "Minor", "Major", etc.
+        self.current_key = 0  # Key number (0-11)
+        self.state_changed = False  # Flag for state updates
 
     def start(self):
         """Start the serial reading thread."""
@@ -100,7 +104,7 @@ class TeensyReader:
                 if self.serial and self.serial.in_waiting > 0:
                     line = self.serial.readline().decode("utf-8").rstrip()
                     if line:
-                        self._parse_frequencies(line)
+                        self._parse_line(line)
                 else:
                     time.sleep(0.005)  # Small delay to avoid busy-waiting
             except serial.SerialException as e:
@@ -111,8 +115,29 @@ class TeensyReader:
                 # Ignore decode errors and continue
                 pass
 
-    def _parse_frequencies(self, line):
-        """Parse a line in format: f1;f2;f3"""
+    def _parse_line(self, line):
+        """Parse a line from Teensy - either frequencies or state messages."""
+        # Check for state messages first
+        if line == "Minor" or line == "Major":
+            with self.lock:
+                self.chord_type = line
+                self.state_changed = True
+            print(f"[Teensy] Chord type: {line}")
+            return
+
+        if line.startswith("Key changed:"):
+            try:
+                key_str = line.split(":")[1].strip()
+                key_num = int(key_str)
+                with self.lock:
+                    self.current_key = key_num
+                    self.state_changed = True
+                print(f"[Teensy] Key changed to: {key_num}")
+            except (IndexError, ValueError):
+                pass
+            return
+
+        # Try to parse as frequencies (f1;f2;f3)
         try:
             parts = line.split(";")
             if len(parts) >= 3:
@@ -124,7 +149,7 @@ class TeensyReader:
                     self.new_data = True
                 print(f"[Teensy] Frequencies: {f1:.2f}, {f2:.2f}, {f3:.2f}")
         except ValueError:
-            # Invalid format, ignore
+            # Unknown format, ignore
             pass
 
     def get_frequencies(self):
@@ -138,6 +163,13 @@ class TeensyReader:
                 self.frequencies[2],
                 has_new,
             )
+
+    def get_state(self):
+        """Get the current state (thread-safe). Returns (chord_type, key, has_changed)."""
+        with self.lock:
+            has_changed = self.state_changed
+            self.state_changed = False
+            return self.chord_type, self.current_key, has_changed
 
     def is_connected(self):
         """Check if connected to Teensy."""
@@ -162,7 +194,7 @@ def main():
     ui = []
     y = 20
     ui.append(Label(30, y, "SON VISUALIZER", Theme.FONT_TITLE, Theme.GOLD_PRIMARY))
-    y += 50
+    y += 55
 
     # Connection status label
     lbl_status = Label(
@@ -171,23 +203,34 @@ def main():
     ui.append(lbl_status)
     y += 30
 
+    # Chord type label (Minor/Major)
+    lbl_chord = Label(30, y, "Chord: ---", Theme.FONT_MAIN, Theme.GOLD_PRIMARY)
+    ui.append(lbl_chord)
+    y += 35
+
+    # Key label
+    lbl_key = Label(30, y, "Key: ---", Theme.FONT_MAIN, Theme.TEXT_GOLD)
+    ui.append(lbl_key)
+    y += 45
+
     bar_x = FrequencyBar(30, y, 260, 20, "X Freq", max_freq=1000, color=(255, 100, 100))
     ui.append(bar_x)
-    y += 60
+    y += 55
     bar_y = FrequencyBar(30, y, 260, 20, "Y Freq", max_freq=1000, color=(100, 200, 255))
     ui.append(bar_y)
-    y += 60
+    y += 55
     bar_z = FrequencyBar(30, y, 260, 20, "Z Freq", max_freq=1000, color=(100, 255, 150))
     ui.append(bar_z)
-    y += 60
-    lbl_pts = Label(30, y, "Points: 0", Theme.FONT_MAIN, Theme.TEXT_GRAY)
+    y += 55
+
+    lbl_pts = Label(30, y, "Points: 0", Theme.FONT_SMALL, Theme.TEXT_GRAY)
     ui.append(lbl_pts)
-    y += 30
+    y += 28
 
     # Tilt angle controls
-    lbl_tilt = Label(30, y, "Tilt: -23°", Theme.FONT_MAIN, Theme.TEXT_GRAY)
+    lbl_tilt = Label(30, y, "Tilt: -23°", Theme.FONT_SMALL, Theme.TEXT_GRAY)
     ui.append(lbl_tilt)
-    y += 30
+    y += 35
 
     def tilt_minus():
         viz.set_base_tilt_deg(viz.base_rot_deg - 5)
@@ -208,33 +251,33 @@ def main():
         viz.lerp_steps = int(v)
 
     ui.append(Slider(30, y, 260, 0, 50, 30, "Smoothness", set_smooth))
-    y += 60
+    y += 55
 
     def set_speed(v):
         viz.speed_factor = v / 10000.0  # Range: 0.0001 to 0.01
 
     ui.append(Slider(30, y, 260, 1, 100, 20, "Speed", set_speed))
-    y += 60
+    y += 55
 
     def set_volume_slider(v):
         viz.set_volume(v / 100.0)
 
     ui.append(Slider(30, y, 260, 0, 100, 100, "Volume", set_volume_slider))
-    y += 60
+    y += 55
 
     def set_attenuation_slider(v):
         viz.set_delay(v / 100.0)
 
     ui.append(Slider(30, y, 260, 0, 100, 0, "Atténuation", set_attenuation_slider))
-    y += 60
-    ui.append(Button(30, y, 260, 40, "Clear", viz.clear))
-    y += 50
+    y += 55
+    ui.append(Button(30, y, 260, 36, "Clear", viz.clear))
+    y += 48
     ui.append(
         Button(
             30,
             y,
             260,
-            40,
+            36,
             "Exit",
             lambda: pygame.event.post(pygame.event.Event(pygame.QUIT)),
         )
@@ -283,6 +326,17 @@ def main():
         else:
             lbl_status.set_text("Teensy: Disconnected")
             lbl_status.color = Theme.ERROR_RED
+
+        # Update state labels
+        chord_type, key_num, state_changed = teensy.get_state()
+        if state_changed or chord_type:
+            if chord_type:
+                lbl_chord.set_text(f"Chord: {chord_type}")
+                if chord_type == "Major":
+                    lbl_chord.color = Theme.GOLD_PRIMARY
+                else:
+                    lbl_chord.color = (150, 150, 255)  # Blueish for Minor
+            lbl_key.set_text(f"Key: {key_num}")
 
         viz.update()
         lbl_pts.set_text(f"Points: {len(viz.points)}")
